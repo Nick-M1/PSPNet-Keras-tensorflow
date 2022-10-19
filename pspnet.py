@@ -169,7 +169,19 @@ class PSPNet(object):
         h5_path = join("weights", "keras", weights_path + ".h5")
 
         print("Importing weights from %s" % npy_weights_path)
+        
+        # save np.load
+        np_load_old = np.load
+
+        # modify the default parameters of np.load
+        np.load = lambda *a,**k: np_load_old(*a, allow_pickle=True, **k)
+
+        # call load_data with allow_pickle implicitly set to true
         weights = np.load(npy_weights_path, encoding='bytes').item()
+        
+        # restore np.load for future normal usage
+        np.load = np_load_old
+        
         for layer in self.model.layers:
             print(layer.name)
             if layer.name[:4] == 'conv' and layer.name[-2:] == 'bn':
