@@ -29,8 +29,8 @@ class Interp(layers.Layer):
 
     def call(self, inputs, **kwargs):
         new_height, new_width = self.new_size
-        resized = ktf.image.resize_images(inputs, [new_height, new_width],
-                                          align_corners=True)
+        resized = ktf.image.resize(inputs, [new_height, new_width],
+                                          method='bilinear')
         return resized
 
     def compute_output_shape(self, input_shape):
