@@ -340,15 +340,18 @@ if __name__ == "__main__":
             if img is None:
                 break
 
-                # DELE
+            #     # DELE
             filename, ext = splitext(args.output_path)
-            imageio.imwrite(filename + "_%08d_seg"%counter + ".png", img)
-            counter += 1
-            continue
-                # 
+            # imageio.imwrite(filename + "_%08d_seg"%counter + ".png", img)
+            # counter += 1
+            # continue
+            #     # 
+            imageio.imwrite(filename + "_%08d_orig1"%counter + ".png", img)
 
             # img = cv2.resize(img,(int(16.0*713/9.0),713))
-            img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            imageio.imwrite(filename + "_%08d_orig2"%counter + ".png", img)
+
 
             start = datetime.datetime.now()
             # class_scores = predict_multi_scale(img, pspnet, EVALUATION_SCALES, args.sliding, args.flip)
@@ -370,11 +373,11 @@ if __name__ == "__main__":
             time_sum += diff.microseconds/1000.0
             print(counter,diff.microseconds/1000.0,'ms')
 
-            # cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
-            # cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
+            cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
+            cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
 
-            # cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
-            # cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
+            cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
+            cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
 
   
             # colored_class_image.save(join(folder_out, f"{counter:03d}.png"))
