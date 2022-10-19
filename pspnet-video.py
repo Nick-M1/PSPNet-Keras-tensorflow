@@ -14,11 +14,13 @@ import numpy as np
 from scipy import misc, ndimage
 from keras import backend as K
 from keras.models import model_from_json
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import layers_builder as layers
 from utils import utils
 import matplotlib.pyplot as plt
 import cv2
+from PIL import Image
+import imageio
 import datetime
 from tensorflow.python.client import device_lib
 
@@ -72,7 +74,7 @@ class PSPNet(object):
         h_ori, w_ori = img.shape[:2]
         if img.shape[0:2] != self.input_shape:
             # print("Input %s not fitting for network size %s, resizing. You may want to try sliding prediction for better results." % (img.shape[0:2], self.input_shape))
-            img = misc.imresize(img, self.input_shape)
+            img = np.array(Image.fromarray(img).resize(self.input_shape))
         input_data = self.preprocess_image(img)
         # utils.debug(self.model, input_data)
 
@@ -105,7 +107,22 @@ class PSPNet(object):
         h5_path = join("weights", "keras", weights_path + ".h5")
 
         print("Importing weights from %s" % npy_weights_path)
+        
+        
+        
+        # save np.load
+        np_load_old = np.load
+        
+        # modify the default parameters of np.load
+        np.load = lambda *a,**k: np_load_old(*a, allow_pickle=True, **k)
+
+        # call load_data with allow_pickle implicitly set to true
         weights = np.load(npy_weights_path, encoding="latin1").item()
+
+        # restore np.load for future normal usage
+        np.load = np_load_old
+        
+        
 
         whitelist = ["InputLayer", "Activation", "ZeroPadding2D", "Add", "MaxPooling2D", "AveragePooling2D", "Lambda", "Concatenate", "Dropout"]
 
@@ -345,7 +362,8 @@ if __name__ == "__main__":
             cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
             cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
 
-            misc.imsave(filename + "_%08d_seg"%counter + ext, colored_class_image)
-            misc.imsave(filename + "_%08d_probs"%counter + ext, pm)
-            misc.imsave(filename + "_%08d_seg_blended"%counter + ext, alpha_blended)
+            imageio.imwrite(filename + "_%08d_seg"%counter + ext, colored_class_image)
+            imageio.imwrite(filename + "_%08d_probs"%counter + ext, pm)
+            imageio.imwrite(filename + "_%08d_seg_blended"%counter + ext, alpha_blended)
+            
             counter = counter + 1
