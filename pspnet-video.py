@@ -19,10 +19,10 @@ import layers_builder as layers
 from utils import utils
 import matplotlib.pyplot as plt
 import cv2
-from PIL import Image
-import imageio
 import datetime
 from tensorflow.python.client import device_lib
+from PIL import Image
+import imageio
 
 __author__ = "Vlad Kryvoruchko, Chaoyue Wang, Jeffrey Hu & Julian Tatsch"
 
@@ -107,12 +107,11 @@ class PSPNet(object):
         h5_path = join("weights", "keras", weights_path + ".h5")
 
         print("Importing weights from %s" % npy_weights_path)
-        
-        
-        
+
+
         # save np.load
         np_load_old = np.load
-        
+
         # modify the default parameters of np.load
         np.load = lambda *a,**k: np_load_old(*a, allow_pickle=True, **k)
 
@@ -121,8 +120,9 @@ class PSPNet(object):
 
         # restore np.load for future normal usage
         np.load = np_load_old
-        
-        
+
+
+
 
         whitelist = ["InputLayer", "Activation", "ZeroPadding2D", "Add", "MaxPooling2D", "AveragePooling2D", "Lambda", "Concatenate", "Dropout"]
 
@@ -325,12 +325,27 @@ if __name__ == "__main__":
             EVALUATION_SCALES = [0.15, 0.25, 0.5]  # must be all floats!
 
         time_sum = 0
+
+
+        folder_out = "Track"
+        # if os.path.exists(folder_out):
+        #     shutil.rmtree(folder_out)
+        # os.makedirs(folder_out)
+
+        # pbar = tqdm(total=length)
+
         while(True):
             # Capture frame-by-frame
             ret, img = cap.read()
             if img is None:
                 break
 
+                # DELE
+            filename, ext = splitext(args.output_path)
+            imageio.imwrite(filename + "_%08d_seg"%counter + ".png", img)
+            counter += 1
+            continue
+                # 
 
             # img = cv2.resize(img,(int(16.0*713/9.0),713))
             img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
@@ -355,15 +370,23 @@ if __name__ == "__main__":
             time_sum += diff.microseconds/1000.0
             print(counter,diff.microseconds/1000.0,'ms')
 
+            # cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
+            # cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
 
-            cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
-            cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
+            # cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
+            # cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
 
-            cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
-            cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
+  
+            # colored_class_image.save(join(folder_out, f"{counter:03d}.png"))
 
-            imageio.imwrite(filename + "_%08d_seg"%counter + ext, colored_class_image)
-            imageio.imwrite(filename + "_%08d_probs"%counter + ext, pm)
-            imageio.imwrite(filename + "_%08d_seg_blended"%counter + ext, alpha_blended)
-            
-            counter = counter + 1
+            imageio.imwrite(filename + "_%08d_seg"%counter + ".png", colored_class_image)
+            imageio.imwrite(filename + "_%08d_probs"%counter + ".png", np.nan_to_num(pm))
+            imageio.imwrite(filename + "_%08d_seg_blended"%counter + ".png", alpha_blended)
+            counter += 1
+
+        # create_video(frames_patten='Track/%03d.png', video_file = filename+ext, framerate=30)
+
+
+
+
+
