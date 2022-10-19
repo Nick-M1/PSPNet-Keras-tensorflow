@@ -3,7 +3,7 @@ from math import ceil
 from keras import layers
 from keras.layers import Conv2D, MaxPooling2D, AveragePooling2D
 from keras.layers import BatchNormalization, Activation, Input, Dropout, ZeroPadding2D, Lambda
-from keras.layers.merge import Concatenate, Add
+from keras.layers import Concatenate, Add
 from keras.models import Model
 from keras.optimizers import SGD
 from keras.backend import tf as ktf
