@@ -14,6 +14,9 @@ from utils import utils
 from keras.utils.generic_utils import CustomObjectScope
 import cv2
 import math
+from PIL import Image
+import imageio
+
 # -- Fix for macos, uncomment it
 # import matplotlib
 # matplotlib.use('TkAgg')
@@ -63,7 +66,7 @@ class PSPNet(object):
             print(
                 "Input %s not fitting for network size %s, resizing. You may want to try sliding prediction for better results." % (
                 img.shape[0:2], self.input_shape))
-            img = misc.imresize(img, self.input_shape)
+            img = np.array(Image.fromarray(img).resize(self.input_shape))
 
         img = img - DATA_MEAN
         img = img[:, :, ::-1]  # RGB => BGR
@@ -133,7 +136,9 @@ class PSPNet(object):
         print("Started prediction...")
         for scale in scales:
             print("Predicting image scaled by %f" % scale)
-            scaled_img = misc.imresize(img, size=scale, interp="bilinear")
+            
+            temp_img = Image.fromarray(img)
+            scaled_img = np.array(temp_img.resize((int(temp_img.width * scale), int(temp_img.height * scale))))
 
             if sliding_evaluation:
                 scaled_probs = self.predict_sliding(scaled_img, flip_evaluation)
@@ -289,10 +294,11 @@ def main(args):
             else:
                 filename, ext = splitext(args.output_path)
 
-            misc.imsave(filename + "_seg_read" + ext, cm)
-            misc.imsave(filename + "_seg" + ext, colored_class_image)
-            misc.imsave(filename + "_probs" + ext, pm)
-            misc.imsave(filename + "_seg_blended" + ext, alpha_blended)
+            imageio.imwrite(filename + "_seg_read" + ext, cm)
+            imageio.imwrite(filename + "_seg" + ext, colored_class_image)
+            imageio.imwrite(filename + "_probs" + ext, pm)
+            imageio.imwrite(filename + "_seg_blended" + ext, alpha_blended)
+            
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
