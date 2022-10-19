@@ -7,7 +7,7 @@ import numpy as np
 from scipy import misc, ndimage
 from keras import backend as K
 from keras.models import model_from_json, load_model
-import tensorflow.compact.v1 as tf
+import tensorflow.compat.v1 as tf
 import layers_builder as layers
 from glob import glob
 from utils import utils
