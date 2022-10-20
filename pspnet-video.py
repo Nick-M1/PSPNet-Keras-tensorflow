@@ -1,114 +1,180 @@
 #!/usr/bin/env python
-"""
-This module is a Keras/Tensorflow based implementation of Pyramid Scene Parsing Networks.
-
-Original paper & code published by Hengshuang Zhao et al. (2017)
-"""
 from __future__ import print_function
-from __future__ import division
-from os.path import splitext, join, isfile
-from os import environ
-from math import ceil
+import os
+from os.path import splitext, join, isfile, isdir, basename
 import argparse
 import numpy as np
 from scipy import misc, ndimage
 from keras import backend as K
-from keras.models import model_from_json
+from keras.models import model_from_json, load_model
 import tensorflow.compat.v1 as tf
 import layers_builder as layers
+from glob import glob
 from utils import utils
-import matplotlib.pyplot as plt
+from keras.utils.generic_utils import CustomObjectScope
 import cv2
-import datetime
-from tensorflow.python.client import device_lib
+import math
 from PIL import Image
 import imageio
 
-__author__ = "Vlad Kryvoruchko, Chaoyue Wang, Jeffrey Hu & Julian Tatsch"
+# -- Fix for macos, uncomment it
+# import matplotlib
+# matplotlib.use('TkAgg')
+# --
+import matplotlib.pyplot as plt
 
 
+from imageio import imread
 # These are the means for the ImageNet pretrained ResNet
 DATA_MEAN = np.array([[[123.68, 116.779, 103.939]]])  # RGB order
-EVALUATION_SCALES = [1.0]  # must be all floats!
-
-
-def getGPUname():
-    local_device_protos = device_lib.list_local_devices()
-    l = [x.physical_device_desc for x in local_device_protos if x.device_type == 'GPU']
-    s=''
-    for t in l:
-        s+=t[t.find("name: ")+len("name: "):t.find(", pci")] + " "
-    return s
-
-
-GPU_NAME = getGPUname()
 
 
 class PSPNet(object):
-    """Pyramid Scene Parsing Network by Hengshuang Zhao et al 2017."""
+    """Pyramid Scene Parsing Network by Hengshuang Zhao et al 2017"""
 
     def __init__(self, nb_classes, resnet_layers, input_shape, weights):
-        """Instanciate a PSPNet."""
         self.input_shape = input_shape
+        self.num_classes = nb_classes
+
         json_path = join("weights", "keras", weights + ".json")
         h5_path = join("weights", "keras", weights + ".h5")
-        if isfile(json_path) and isfile(h5_path):
-            print("Keras model & weights found, loading...")
-            with open(json_path, 'r') as file_handle:
-                self.model = model_from_json(file_handle.read())
-            self.model.load_weights(h5_path)
+        if 'pspnet' in weights:
+            if os.path.isfile(json_path) and os.path.isfile(h5_path):
+                print("Keras model & weights found, loading...")
+                with CustomObjectScope({'Interp': layers.Interp}):
+                    with open(json_path) as file_handle:
+                        self.model = model_from_json(file_handle.read())
+                self.model.load_weights(h5_path)
+            else:
+                print("No Keras model & weights found, import from npy weights.")
+                self.model = layers.build_pspnet(nb_classes=nb_classes,
+                                                 resnet_layers=resnet_layers,
+                                                 input_shape=self.input_shape)
+                self.set_npy_weights(weights)
         else:
-            print("No Keras model & weights found, import from npy weights.")
-            self.model = layers.build_pspnet(nb_classes=nb_classes,
-                                             resnet_layers=resnet_layers,
-                                             input_shape=self.input_shape)
-            self.set_npy_weights(weights)
+            print('Load pre-trained weights')
+            self.model = load_model(weights)
 
-    def predict(self, img, flip_evaluation):
+    def predict(self, img, flip_evaluation=False):
         """
         Predict segementation for an image.
-
         Arguments:
             img: must be rowsxcolsx3
         """
-        h_ori, w_ori = img.shape[:2]
-        if img.shape[0:2] != self.input_shape:
-            # print("Input %s not fitting for network size %s, resizing. You may want to try sliding prediction for better results." % (img.shape[0:2], self.input_shape))
-            img = np.array(Image.fromarray(img).resize(self.input_shape))
-        input_data = self.preprocess_image(img)
-        # utils.debug(self.model, input_data)
 
-        regular_prediction = self.model.predict(input_data)[0]
+        if img.shape[0:2] != self.input_shape:
+            print(
+                "Input %s not fitting for network size %s, resizing. You may want to try sliding prediction for better results." % (
+                img.shape[0:2], self.input_shape))
+            img = np.array(Image.fromarray(img).resize(self.input_shape))
+
+        img = img - DATA_MEAN
+        img = img[:, :, ::-1]  # RGB => BGR
+        img = img.astype('float32')
+
+        probs = self.feed_forward(img, flip_evaluation)
+
+        return probs
+
+    def predict_sliding(self, full_img, flip_evaluation):
+        """
+        Predict on tiles of exactly the network input shape.
+        This way nothing gets squeezed.
+        """
+        tile_size = self.input_shape
+        classes = self.num_classes
+        overlap = 1 / 3
+
+        stride = math.ceil(tile_size[0] * (1 - overlap))
+        tile_rows = max(int(math.ceil((full_img.shape[0] - tile_size[0]) / stride) + 1), 1)  # strided convolution formula
+        tile_cols = max(int(math.ceil((full_img.shape[1] - tile_size[1]) / stride) + 1), 1)
+        print("Need %i x %i prediction tiles @ stride %i px" % (tile_cols, tile_rows, stride))
+        full_probs = np.zeros((full_img.shape[0], full_img.shape[1], classes))
+        count_predictions = np.zeros((full_img.shape[0], full_img.shape[1], classes))
+        tile_counter = 0
+        for row in range(tile_rows):
+            for col in range(tile_cols):
+                x1 = int(col * stride)
+                y1 = int(row * stride)
+                x2 = min(x1 + tile_size[1], full_img.shape[1])
+                y2 = min(y1 + tile_size[0], full_img.shape[0])
+                x1 = max(int(x2 - tile_size[1]), 0)  # for portrait images the x1 underflows sometimes
+                y1 = max(int(y2 - tile_size[0]), 0)  # for very few rows y1 underflows
+
+                img = full_img[y1:y2, x1:x2]
+                padded_img = self.pad_image(img, tile_size)
+                plt.imshow(padded_img)
+                plt.show()
+                tile_counter += 1
+                print("Predicting tile %i" % tile_counter)
+                padded_prediction = self.predict(padded_img, flip_evaluation)
+                prediction = padded_prediction[0:img.shape[0], 0:img.shape[1], :]
+                count_predictions[y1:y2, x1:x2] += 1
+                full_probs[y1:y2, x1:x2] += prediction  # accumulate the predictions also in the overlapping regions
+
+        # average the predictions in the overlapping regions
+        full_probs /= count_predictions
+        # visualize normalization Weights
+        # plt.imshow(np.mean(count_predictions, axis=2))
+        # plt.show()
+        return full_probs
+
+    @staticmethod
+    def pad_image(img, target_size):
+        """Pad an image up to the target size."""
+        rows_missing = target_size[0] - img.shape[0]
+        cols_missing = target_size[1] - img.shape[1]
+        padded_img = np.pad(img, ((0, rows_missing), (0, cols_missing), (0, 0)), 'constant')
+        return padded_img
+
+    def predict_multi_scale(self, img, flip_evaluation, sliding_evaluation, scales):
+        """Predict an image by looking at it with different scales."""
+
+        full_probs = np.zeros((img.shape[0], img.shape[1], self.num_classes))
+        h_ori, w_ori = img.shape[:2]
+
+        print("Started prediction...")
+        for scale in scales:
+            print("Predicting image scaled by %f" % scale)
+            
+            temp_img = Image.fromarray(img)
+            scaled_img = np.array(temp_img.resize((int(temp_img.width * scale), int(temp_img.height * scale))))
+
+            if sliding_evaluation:
+                scaled_probs = self.predict_sliding(scaled_img, flip_evaluation)
+            else:
+                scaled_probs = self.predict(scaled_img, flip_evaluation)
+
+            # scale probs up to full size
+            # visualize_prediction(probs)
+            probs = cv2.resize(scaled_probs, (w_ori, h_ori))
+            full_probs += probs
+        full_probs /= len(scales)
+        print("Finished prediction...")
+
+        return full_probs
+
+    def feed_forward(self, data, flip_evaluation=False):
+        assert data.shape == (self.input_shape[0], self.input_shape[1], 3)
+
         if flip_evaluation:
             print("Predict flipped")
-            flipped_prediction = np.fliplr(self.model.predict(np.flip(input_data, axis=2))[0])
-            prediction = (regular_prediction + flipped_prediction) / 2.0
+            input_with_flipped = np.array(
+                [data, np.flip(data, axis=1)])
+            prediction_with_flipped = self.model.predict(input_with_flipped)
+            prediction = (prediction_with_flipped[
+                          0] + np.fliplr(prediction_with_flipped[1])) / 2.0
         else:
-            prediction = regular_prediction
-
-        if img.shape[0:1] != self.input_shape:  # upscale prediction if necessary
-            h, w = prediction.shape[:2]
-            # prediction = ndimage.zoom(prediction, (1.*h_ori/h, 1.*w_ori/w, 1.), order=1, prefilter=False)
-            prediction = cv2.resize(prediction,(w_ori,h_ori))
+            prediction = self.model.predict(np.expand_dims(data, 0))[0]
         return prediction
 
-    def preprocess_image(self, img):
-        """Preprocess an image as input."""
-        float_img = img.astype('float16')
-        centered_image = float_img - DATA_MEAN
-        bgr_image = centered_image[:, :, ::-1]  # RGB => BGR
-        input_data = bgr_image[np.newaxis, :, :, :]  # Append sample dimension for keras
-        return input_data
-
     def set_npy_weights(self, weights_path):
-        """Set weights from the intermediary npy file."""
         npy_weights_path = join("weights", "npy", weights_path + ".npy")
         json_path = join("weights", "keras", weights_path + ".json")
         h5_path = join("weights", "keras", weights_path + ".h5")
 
         print("Importing weights from %s" % npy_weights_path)
-
-
+        
         # save np.load
         np_load_old = np.load
 
@@ -116,45 +182,34 @@ class PSPNet(object):
         np.load = lambda *a,**k: np_load_old(*a, allow_pickle=True, **k)
 
         # call load_data with allow_pickle implicitly set to true
-        weights = np.load(npy_weights_path, encoding="latin1").item()
-
+        weights = np.load(npy_weights_path, encoding='bytes').item()
+        
         # restore np.load for future normal usage
         np.load = np_load_old
-
-
-
-
-        whitelist = ["InputLayer", "Activation", "ZeroPadding2D", "Add", "MaxPooling2D", "AveragePooling2D", "Lambda", "Concatenate", "Dropout"]
-
-        weights_set = 0
+        
         for layer in self.model.layers:
-            print("Processing %s" % layer.name)
+            print(layer.name)
             if layer.name[:4] == 'conv' and layer.name[-2:] == 'bn':
-                mean = weights[layer.name]['mean'].reshape(-1)
-                variance = weights[layer.name]['variance'].reshape(-1)
-                scale = weights[layer.name]['scale'].reshape(-1)
-                offset = weights[layer.name]['offset'].reshape(-1)
+                mean = weights[layer.name.encode()][
+                    'mean'.encode()].reshape(-1)
+                variance = weights[layer.name.encode()][
+                    'variance'.encode()].reshape(-1)
+                scale = weights[layer.name.encode()][
+                    'scale'.encode()].reshape(-1)
+                offset = weights[layer.name.encode()][
+                    'offset'.encode()].reshape(-1)
 
-                self.model.get_layer(layer.name).set_weights([mean, variance,
-                                                             scale, offset])
-                weights_set += 1
+                self.model.get_layer(layer.name).set_weights(
+                    [scale, offset, mean, variance])
+
             elif layer.name[:4] == 'conv' and not layer.name[-4:] == 'relu':
                 try:
-                    weight = weights[layer.name]['weights']
+                    weight = weights[layer.name.encode()]['weights'.encode()]
                     self.model.get_layer(layer.name).set_weights([weight])
-                except Exception:
-                    biases = weights[layer.name]['biases']
+                except Exception as err:
+                    biases = weights[layer.name.encode()]['biases'.encode()]
                     self.model.get_layer(layer.name).set_weights([weight,
-                                                                 biases])
-                weights_set += 1
-            elif layer.__class__.__name__ in whitelist:
-                # print("Nothing to set in %s" % layer.__class__.__name__)
-                pass
-            else:
-                print("Warning: Did not find weights for keras layer %s in numpy weights" % layer)
-
-        print("Set a total of %i weights" % weights_set)
-
+                                                                  biases])
         print('Finished importing weights.')
 
         print("Writing keras model & weights")
@@ -169,7 +224,6 @@ class PSPNet50(PSPNet):
     """Build a PSPNet based on a 50-Layer ResNet."""
 
     def __init__(self, nb_classes, weights, input_shape):
-        """Instanciate a PSPNet50."""
         PSPNet.__init__(self, nb_classes=nb_classes, resnet_layers=50,
                         input_shape=input_shape, weights=weights)
 
@@ -178,161 +232,54 @@ class PSPNet101(PSPNet):
     """Build a PSPNet based on a 101-Layer ResNet."""
 
     def __init__(self, nb_classes, weights, input_shape):
-        """Instanciate a PSPNet101."""
         PSPNet.__init__(self, nb_classes=nb_classes, resnet_layers=101,
                         input_shape=input_shape, weights=weights)
 
 
-def pad_image(img, target_size):
-    """Pad an image up to the target size."""
-    rows_missing = target_size[0] - img.shape[0]
-    cols_missing = target_size[1] - img.shape[1]
-    padded_img = np.pad(img, ((0, rows_missing), (0, cols_missing), (0, 0)), 'constant')
-    return padded_img
+def main(args):
+    # Handle input and output args
+    images = glob(args.glob_path) if args.glob_path else [args.input_path, ]
+    if args.glob_path:
+        fn, ext = splitext(args.output_path)
+        if ext:
+            parser.error("output_path should be a folder for multiple file input")
+        if not isdir(args.output_path):
+            os.mkdir(args.output_path)
 
-
-def visualize_prediction(prediction):
-    """Visualize prediction."""
-    cm = np.argmax(prediction, axis=2) + 1
-    color_cm = utils.add_color(cm)
-    plt.imshow(color_cm)
-    plt.show()
-
-
-def predict_sliding(full_image, net, flip_evaluation):
-    """Predict on tiles of exactly the network input shape so nothing gets squeezed."""
-    tile_size = net.input_shape
-    classes = net.model.outputs[0].shape[3]
-    overlap = 1/3
-
-    stride = ceil(tile_size[0] * (1 - overlap))
-    tile_rows = int(ceil((full_image.shape[0] - tile_size[0]) / stride) + 1)  # strided convolution formula
-    tile_cols = int(ceil((full_image.shape[1] - tile_size[1]) / stride) + 1)
-    print("Need %i x %i prediction tiles @ stride %i px" % (tile_cols, tile_rows, stride))
-    full_probs = np.zeros((full_image.shape[0], full_image.shape[1], classes))
-    count_predictions = np.zeros((full_image.shape[0], full_image.shape[1], classes))
-    tile_counter = 0
-    for row in range(tile_rows):
-        for col in range(tile_cols):
-            x1 = int(col * stride)
-            y1 = int(row * stride)
-            x2 = min(x1 + tile_size[1], full_image.shape[1])
-            y2 = min(y1 + tile_size[0], full_image.shape[0])
-            x1 = max(int(x2 - tile_size[1]), 0)  # for portrait images the x1 underflows sometimes
-            y1 = max(int(y2 - tile_size[0]), 0)  # for very few rows y1 underflows
-
-            img = full_image[y1:y2, x1:x2]
-            padded_img = pad_image(img, tile_size)
-            # plt.imshow(padded_img)
-            # plt.show()
-            tile_counter += 1
-            print("Predicting tile %i" % tile_counter)
-            padded_prediction = net.predict(padded_img, flip_evaluation)
-            prediction = padded_prediction[0:img.shape[0], 0:img.shape[1], :]
-            count_predictions[y1:y2, x1:x2] += 1
-            full_probs[y1:y2, x1:x2] += prediction  # accumulate the predictions also in the overlapping regions
-
-    # average the predictions in the overlapping regions
-    full_probs /= count_predictions
-    # visualize normalization Weights
-    # plt.imshow(np.mean(count_predictions, axis=2))
-    # plt.show()
-    return full_probs
-
-
-def predict_multi_scale(full_image, net, scales, sliding_evaluation, flip_evaluation):
-    """Predict an image by looking at it with different scales."""
-    classes = net.model.outputs[0].shape[3]
-    full_probs = np.zeros((full_image.shape[0], full_image.shape[1], classes))
-    h_ori, w_ori = full_image.shape[:2]
-    for scale in scales:
-        print("Predicting image scaled by %f" % scale)
-        scaled_img = misc.imresize(full_image, size=scale, interp="bilinear")
-        if sliding_evaluation:
-            scaled_probs = predict_sliding(scaled_img, net, flip_evaluation)
-        else:
-            scaled_probs = net.predict(scaled_img, flip_evaluation)
-        # scale probs up to full size
-        h, w = scaled_probs.shape[:2]
-        probs = ndimage.zoom(scaled_probs, (1.*h_ori/h, 1.*w_ori/w, 1.),order=1, prefilter=False)
-        # visualize_prediction(probs)
-        # integrate probs over all scales
-        full_probs += probs
-    full_probs /= len(scales)
-    return full_probs
-
-
-def _predict(full_image, net, flip_evaluation):
-    classes = net.model.outputs[0].shape[3]
-    full_probs = np.zeros((full_image.shape[0], full_image.shape[1], classes))
-    h_ori, w_ori = full_image.shape[:2]
-    scaled_probs = net.predict(full_image, flip_evaluation)
-    # scale probs up to full size
-    h, w = scaled_probs.shape[:2]
-    probs = cv2.resize(scaled_probs,(w_ori,h_ori))
-    # visualize_prediction(probs)
-    # integrate probs over all scales
-    full_probs += probs
-    return full_probs
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--model', type=str, default='pspnet50_ade20k',
-                        help='Model/Weights to use',
-                        choices=['pspnet50_ade20k',
-                                 'pspnet101_cityscapes',
-                                 'pspnet101_voc2012'])
-    parser.add_argument('-i', '--input_path', type=str, default='example_images/ade20k.jpg',
-                        help='Path the input image')
-    parser.add_argument('-o', '--output_path', type=str, default='example_results/ade20k.jpg',
-                        help='Path to output')
-    parser.add_argument('--id', default="1")
-    parser.add_argument('-s', '--sliding', action='store_true',
-                        help="Whether the network should be slided over the original image for prediction.")
-    parser.add_argument('-f', '--flip', action='store_true',
-                        help="Whether the network should predict on both image and flipped image.")
-    parser.add_argument('-ms', '--multi_scale', action='store_true',
-                        help="Whether the network should predict on multiple scales.")
-    args = parser.parse_args()
-
-    # environ["CUDA_VISIBLE_DEVICES"] = args.id
+    # Predict
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.id
 
     sess = tf.Session()
     K.set_session(sess)
 
     with sess.as_default():
         cap = cv2.VideoCapture(args.input_path)
+
         print(args)
-        counter = 0
+        if not args.weights:
+            if "pspnet50" in args.model:
+                pspnet = PSPNet50(nb_classes=150, input_shape=(473, 473),
+                                  weights=args.model)
+            elif "pspnet101" in args.model:
+                if "cityscapes" in args.model:
+                    pspnet = PSPNet101(nb_classes=19, input_shape=(713, 713),
+                                       weights=args.model)
+                if "voc2012" in args.model:
+                    pspnet = PSPNet101(nb_classes=21, input_shape=(473, 473),
+                                       weights=args.model)
 
-        if "pspnet50" in args.model:
-            pspnet = PSPNet50(nb_classes=150, input_shape=(473, 473),
-                              weights=args.model)
-        elif "pspnet101" in args.model:
-            if "cityscapes" in args.model:
-                pspnet = PSPNet101(nb_classes=19, input_shape=(713, 713),
-                                   weights=args.model)
-            if "voc2012" in args.model:
-                pspnet = PSPNet101(nb_classes=21, input_shape=(473, 473),
-                                   weights=args.model)
-
+            else:
+                print("Network architecture not implemented.")
         else:
-            print("Network architecture not implemented.")
+            pspnet = PSPNet50(nb_classes=2, input_shape=(
+                768, 480), weights=args.weights)
 
+        EVALUATION_SCALES = [1.0]
         if args.multi_scale:
-            EVALUATION_SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]  # must be all floats!
-            EVALUATION_SCALES = [0.15, 0.25, 0.5]  # must be all floats!
+            EVALUATION_SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]  # must be all floats! Taken from original paper
 
         time_sum = 0
-
-
-        folder_out = "Track"
-        # if os.path.exists(folder_out):
-        #     shutil.rmtree(folder_out)
-        # os.makedirs(folder_out)
-
-        # pbar = tqdm(total=length)
+        counter = 0
 
         while(True):
             # Capture frame-by-frame
@@ -340,56 +287,54 @@ if __name__ == "__main__":
             if img is None:
                 break
 
-            #     # DELE
-            filename, ext = splitext(args.output_path)
-            # imageio.imwrite(filename + "_%08d_seg"%counter + ".png", img)
-            # counter += 1
-            # continue
-            #     # 
-            imageio.imwrite(filename + "_%08d_orig1"%counter + ".png", img)
 
-            # img = cv2.resize(img,(int(16.0*713/9.0),713))
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            imageio.imwrite(filename + "_%08d_orig2"%counter + ".png", img)
+            probs = pspnet.predict_multi_scale(img, args.flip, args.sliding, EVALUATION_SCALES)
 
+            cm = np.argmax(probs, axis=2)
+            pm = np.max(probs, axis=2)
 
-            start = datetime.datetime.now()
-            # class_scores = predict_multi_scale(img, pspnet, EVALUATION_SCALES, args.sliding, args.flip)
-            class_scores = _predict(img, pspnet, args.flip)
-
-            # End time
-            end = datetime.datetime.now()
-
-            # Time elapsed
-            diff = end - start
-
-            class_image = np.argmax(class_scores, axis=2)
-            pm = np.max(class_scores, axis=2)
-            colored_class_image = utils.color_class_image(class_image, args.model)
-
+            colored_class_image = utils.color_class_image(cm, args.model)
             alpha_blended = 0.5 * colored_class_image + 0.5 * img
-            filename, ext = splitext(args.output_path)
 
-            time_sum += diff.microseconds/1000.0
-            print(counter,diff.microseconds/1000.0,'ms')
+            if args.glob_path:
+                input_filename, ext = splitext(basename(img_path))
+                filename = join(args.output_path, input_filename)
+            else:
+                filename, ext = splitext(args.output_path)
 
-            cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
-            cv2.putText(alpha_blended,'%s %s'%(GPU_NAME,args.model),(100,100), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
 
-            cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(0,0,0),16,cv2.LINE_AA)
-            cv2.putText(alpha_blended,'Prediction time: %.0fms (%.1f fps) AVG: %.0fms (%.1f fps)'%(diff.microseconds/1000.0,1000000.0/diff.microseconds,time_sum/(counter+1),1000.0/(time_sum/(counter+1))),(100,200), cv2.FONT_HERSHEY_SIMPLEX, 3,(255,255,255),10,cv2.LINE_AA)
-
-  
-            # colored_class_image.save(join(folder_out, f"{counter:03d}.png"))
-
+            imageio.imwrite(filename + "_%08d_seg_read"%counter + ".png", cm)
             imageio.imwrite(filename + "_%08d_seg"%counter + ".png", colored_class_image)
-            imageio.imwrite(filename + "_%08d_probs"%counter + ".png", np.nan_to_num(pm))
+            imageio.imwrite(filename + "_%08d_probs"%counter + ".png", pm)
             imageio.imwrite(filename + "_%08d_seg_blended"%counter + ".png", alpha_blended)
+
             counter += 1
+            
 
-        # create_video(frames_patten='Track/%03d.png', video_file = filename+ext, framerate=30)
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--model', type=str, default='pspnet101_voc2012',
+                        help='Model/Weights to use',
+                        choices=['pspnet50_ade20k',
+                                 'pspnet101_cityscapes',
+                                 'pspnet101_voc2012'])
+    parser.add_argument('-w', '--weights', type=str, default=None)
+    parser.add_argument('-i', '--input_path', type=str, default='example_images/ade20k.jpg',
+                        help='Path the input image')
+    parser.add_argument('-g', '--glob_path', type=str, default=None,
+                        help='Glob path for multiple images')
+    parser.add_argument('-o', '--output_path', type=str, default='example_results/ade20k.jpg',
+                        help='Path to output')
+    parser.add_argument('--id', default="0")
+    parser.add_argument('--input_size', type=int, default=500)
+    parser.add_argument('-s', '--sliding', action='store_true',
+                        help="Whether the network should be slided over the original image for prediction.")
+    parser.add_argument('-f', '--flip', action='store_true', default=True,
+                        help="Whether the network should predict on both image and flipped image.")
+    parser.add_argument('-ms', '--multi_scale', action='store_true',
+                        help="Whether the network should predict on multiple scales.")
 
+    args = parser.parse_args()
 
-
-
+    main(args)
 
