@@ -53,7 +53,7 @@ def main(args):
     WIDTH_SECTOR = width // NUM_SECTORS  # Width (pixels) of a single sector
 
     TEMP_VID_DIR = "PART_2-Vids/Temp-frames"                   # Path of 'temp_vid' directory (used to store frames of video)
-    OUTPUT_FRAME_NAME = args['output_file_name']
+    OUTPUT_FRAME_NAME = "output_file.png"
 
     counter = 0  # Counter for each frame
 
@@ -109,7 +109,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input_file_name", help="Name of input file")
-    parser.add_argument("-o", "--output_file_name", help="Name of output frames")
     args = parser.parse_args()
 
     config = vars(args)
