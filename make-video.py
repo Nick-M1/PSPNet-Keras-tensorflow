@@ -7,9 +7,9 @@ import cv2
 import numpy as np
 
 def main(args):
-    TEMP_VID_DIR = "temp_vid"                   # Path of 'temp_vid' directory (used to store frames of video)
+    TEMP_VID_DIR = "PART_2-Vids/Temp-frames"    # Path of 'temp_vid' directory (used to store frames of video)
     INPUT_FRAME_NAME = "output_img.png"         # Input - lots of frame images
-    OUTPUT_VIDEO_NAME = "output_vid.mp4"        # Output - a single mp4 video
+    OUTPUT_VIDEO_NAME = "PART_2-Vids/Outputs/output_vid.mp4"        # Output - a single mp4 video
 
     directory_list = listdir(TEMP_VID_DIR)
 
@@ -30,8 +30,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("src", help="Source location")
-    parser.add_argument("dest", help="Destination location")
+    parser.add_argument("input_file", help="Input file name")
     args = parser.parse_args()
 
     config = vars(args)
