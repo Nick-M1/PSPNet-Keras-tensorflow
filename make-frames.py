@@ -1,3 +1,5 @@
+import argparse
+
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
@@ -50,12 +52,12 @@ def main(args):
     MIDDLE_SECTOR = NUM_SECTORS // 2  # Index of middle sector
     WIDTH_SECTOR = width // NUM_SECTORS  # Width (pixels) of a single sector
 
-    TEMP_VID_DIR = "temp_vid"                   # Path of 'temp_vid' directory (used to store frames of video)
+    TEMP_VID_DIR = "PART_2-Vids/Temp-frames"                   # Path of 'temp_vid' directory (used to store frames of video)
     OUTPUT_FRAME_NAME = "output_img.png"
 
     counter = 0  # Counter for each frame
 
-    cap = cv2.VideoCapture('input_vid.mp4')
+    cap = cv2.VideoCapture(video_file)
 
     # Check if camera opened successfully
     if (cap.isOpened() == False):
@@ -96,7 +98,7 @@ def main(args):
                 cv2.putText(frame, "Forward path completely blocked", (10, 500), cv2.FONT_HERSHEY_SIMPLEX, 1,
                             (255, 255, 255), 1, 1)
 
-        cv2.imwrite(f"temp_vid/{counter:08}_{OUTPUT_FRAME_NAME}", frame)
+        cv2.imwrite(f"{TEMP_VID_DIR}/{counter:08}_{OUTPUT_FRAME_NAME}", frame)
         counter += 1
 
         # Press Q on keyboard to  exit
@@ -107,7 +109,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("src", help="Source location")
-    parser.add_argument("dest", help="Destination location")
     args = parser.parse_args()
 
     config = vars(args)
