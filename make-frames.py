@@ -35,14 +35,14 @@ def hasNoObstruction(arr_to_check: np.ndarray, frame: np.ndarray, urgency_level:
 
 def main(args):
     # Clear the 'temp_vid' folder
-    files = glob.glob('temp_vid/*')
+    files = glob.glob('PART_2-Vids/Temp-frames/*')
     for f in files:
         os.remove(f)
 
     # Create a VideoCapture object and read from input file
     # If the input is the camera, pass 0 instead of the video file name
-    video_file = args["src"]
-    first_frame = getFirstFrame(video_file)
+    input_file_name = f"PART_2-Vids/Inputs/{args['input_file_name']}"
+    first_frame = getFirstFrame(input_file_name)
 
     height, width, _ = first_frame.shape
     print(height, width)
@@ -53,11 +53,11 @@ def main(args):
     WIDTH_SECTOR = width // NUM_SECTORS  # Width (pixels) of a single sector
 
     TEMP_VID_DIR = "PART_2-Vids/Temp-frames"                   # Path of 'temp_vid' directory (used to store frames of video)
-    OUTPUT_FRAME_NAME = "output_img.png"
+    OUTPUT_FRAME_NAME = args['output_file_name']
 
     counter = 0  # Counter for each frame
 
-    cap = cv2.VideoCapture(video_file)
+    cap = cv2.VideoCapture(input_file_name)
 
     # Check if camera opened successfully
     if (cap.isOpened() == False):
@@ -108,7 +108,8 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("src", help="Source location")
+    parser.add_argument("-i", "--input_file_name", help="Name of input file")
+    parser.add_argument("-o", "--output_file_name", help="Name of output frames")
     args = parser.parse_args()
 
     config = vars(args)
