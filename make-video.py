@@ -30,7 +30,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-o" "--output_file_name", help="Output file name", default="output_vid.mp4")
+    parser.add_argument("-o", "--output_video_name", help="Output file name", default="output_vid.mp4")
     args = parser.parse_args()
 
     config = vars(args)

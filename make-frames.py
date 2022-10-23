@@ -53,7 +53,7 @@ def main(args):
     WIDTH_SECTOR = width // NUM_SECTORS  # Width (pixels) of a single sector
 
     TEMP_VID_DIR = "PART_2-Vids/Temp-frames"                   # Path of 'temp_vid' directory (used to store frames of video)
-    OUTPUT_FRAME_NAME = "output_file.png"
+    OUTPUT_FRAME_NAME = "output_img.png"
 
     counter = 0  # Counter for each frame
 
