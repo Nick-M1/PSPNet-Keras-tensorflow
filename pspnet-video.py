@@ -240,17 +240,8 @@ class PSPNet101(PSPNet):
 
 def main(args):
 
-    # Set isLogging
+    # TODO: Set isLogging
     isLogging = args.logging
-
-    # Handle input and output args
-    images = glob(args.glob_path) if args.glob_path else [args.input_path, ]
-    if args.glob_path:
-        fn, ext = splitext(args.output_path)
-        if ext:
-            parser.error("output_path should be a folder for multiple file input")
-        if not isdir(args.output_path):
-            os.mkdir(args.output_path)
 
     # Predict
     os.environ["CUDA_VISIBLE_DEVICES"] = args.id
@@ -286,6 +277,8 @@ def main(args):
 
         output_types_set = set(args.output_types)
         temp_file_dir = "PART_1-Vids/Temp-frames"
+        filename = "output_img.png"
+
         counter = 0
 
         while True:
@@ -298,25 +291,17 @@ def main(args):
 
             cm = np.argmax(probs, axis=2)
             pm = np.max(probs, axis=2)
-
             colored_class_image = utils.color_class_image(cm, args.model)
 
-            if args.glob_path:
-                input_filename, ext = splitext(basename(img_path))
-                filename = join(args.output_path, input_filename)
-            else:
-                filename, ext = splitext(args.output_path)
-
-
             if "seg_read" in output_types_set:
-                imageio.imwrite(filename + "_%08d_seg_read"%counter + ".png", cm)
+                imageio.imwrite(f"{temp_file_dir}/Seg-Read-files/{counter:08d}_seg_read_{filename}", cm)
             if "seg" in output_types_set:
-                imageio.imwrite(filename + "_%08d_seg"%counter + ".png", colored_class_image)
+                imageio.imwrite(f"{temp_file_dir}/Seg-files/{counter:08d}_seg_{filename}", colored_class_image)
             if "probs" in output_types_set:
-                imageio.imwrite(filename + "_%08d_probs"%counter + ".png", pm)
+                imageio.imwrite(f"{temp_file_dir}/Probs-files/{counter:08d}_probs_{filename}", pm)
             if "seg_blended" in output_types_set:
                 alpha_blended = 0.5 * colored_class_image + 0.5 * img
-                imageio.imwrite(filename + "_%08d_seg_blended"%counter + ".png", alpha_blended)
+                imageio.imwrite(f"{temp_file_dir}/Seg-Blended-files/{counter:08d}_seg_blended_{filename}", alpha_blended)
 
             counter += 1
 
@@ -331,10 +316,6 @@ if __name__ == "__main__":
     parser.add_argument('-w', '--weights', type=str, default=None)
     parser.add_argument('-i', '--input_path', type=str, default='example_images/ade20k.jpg',
                         help='Path the input image')
-    parser.add_argument('-g', '--glob_path', type=str, default=None,
-                        help='Glob path for multiple images')
-    parser.add_argument('-o', '--output_path', type=str, default='example_results/ade20k.jpg',
-                        help='Path to output')
     parser.add_argument('--id', default="0")
     parser.add_argument('--input_size', type=int, default=500)
     parser.add_argument('-s', '--sliding', action='store_true',
