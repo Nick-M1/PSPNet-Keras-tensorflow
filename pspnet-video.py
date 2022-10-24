@@ -88,7 +88,7 @@ class PSPNet(object):
         stride = math.ceil(tile_size[0] * (1 - overlap))
         tile_rows = max(int(math.ceil((full_img.shape[0] - tile_size[0]) / stride) + 1), 1)  # strided convolution formula
         tile_cols = max(int(math.ceil((full_img.shape[1] - tile_size[1]) / stride) + 1), 1)
-        print("Need %i x %i prediction tiles @ stride %i px" % (tile_cols, tile_rows, stride))
+        if args.logging: print("Need %i x %i prediction tiles @ stride %i px" % (tile_cols, tile_rows, stride))
         full_probs = np.zeros((full_img.shape[0], full_img.shape[1], classes))
         count_predictions = np.zeros((full_img.shape[0], full_img.shape[1], classes))
         tile_counter = 0
@@ -106,7 +106,7 @@ class PSPNet(object):
                 plt.imshow(padded_img)
                 plt.show()
                 tile_counter += 1
-                print("Predicting tile %i" % tile_counter)
+                if args.logging: print("Predicting tile %i" % tile_counter)
                 padded_prediction = self.predict(padded_img, flip_evaluation)
                 prediction = padded_prediction[0:img.shape[0], 0:img.shape[1], :]
                 count_predictions[y1:y2, x1:x2] += 1
@@ -133,9 +133,9 @@ class PSPNet(object):
         full_probs = np.zeros((img.shape[0], img.shape[1], self.num_classes))
         h_ori, w_ori = img.shape[:2]
 
-        print("Started prediction...")
+        if args.logging: print("Started prediction...")
         for scale in scales:
-            print("Predicting image scaled by %f" % scale)
+            if args.logging: print("Predicting image scaled by %f" % scale)
             
             temp_img = Image.fromarray(img)
             scaled_img = np.array(temp_img.resize((int(temp_img.width * scale), int(temp_img.height * scale))))
@@ -150,7 +150,7 @@ class PSPNet(object):
             probs = cv2.resize(scaled_probs, (w_ori, h_ori))
             full_probs += probs
         full_probs /= len(scales)
-        print("Finished prediction...")
+        if args.logging: print("Finished prediction...")
 
         return full_probs
 
@@ -158,7 +158,7 @@ class PSPNet(object):
         assert data.shape == (self.input_shape[0], self.input_shape[1], 3)
 
         if flip_evaluation:
-            print("Predict flipped")
+            if args.logging: print("Predict flipped")
             input_with_flipped = np.array(
                 [data, np.flip(data, axis=1)])
             prediction_with_flipped = self.model.predict(input_with_flipped)
@@ -281,12 +281,11 @@ def main(args):
         temp_file_dir = "PART_1-Vids/Temp-frames"
         counter = 0
 
-        while(True):
+        while (True):
             # Capture frame-by-frame
             ret, img = cap.read()
             if img is None:
                 break
-
 
             probs = pspnet.predict_multi_scale(img, args.flip, args.sliding, EVALUATION_SCALES)
 
@@ -294,7 +293,6 @@ def main(args):
             pm = np.max(probs, axis=2)
 
             colored_class_image = utils.color_class_image(cm, args.model)
-            alpha_blended = 0.5 * colored_class_image + 0.5 * img
 
             if args.glob_path:
                 input_filename, ext = splitext(basename(img_path))
@@ -302,11 +300,17 @@ def main(args):
             else:
                 filename, ext = splitext(args.output_path)
 
+            output_types_set = set(args.output_types)
 
-            imageio.imwrite(filename + "_%08d_seg_read"%counter + ".png", cm)
-            imageio.imwrite(filename + "_%08d_seg"%counter + ".png", colored_class_image)
-            imageio.imwrite(filename + "_%08d_probs"%counter + ".png", pm)
-            imageio.imwrite(filename + "_%08d_seg_blended"%counter + ".png", alpha_blended)
+            if "seg_read" in output_types_set:
+                imageio.imwrite(filename + "_%08d_seg_read"%counter + ".png", cm)
+            if "seg" in output_types_set:
+                imageio.imwrite(filename + "_%08d_seg"%counter + ".png", colored_class_image)
+            if "probs" in output_types_set:
+                imageio.imwrite(filename + "_%08d_probs"%counter + ".png", pm)
+            if "seg_blended" in output_types_set:
+                alpha_blended = 0.5 * colored_class_image + 0.5 * img
+                imageio.imwrite(filename + "_%08d_seg_blended"%counter + ".png", alpha_blended)
 
             counter += 1
 
@@ -333,6 +337,9 @@ if __name__ == "__main__":
                         help="Whether the network should predict on both image and flipped image.")
     parser.add_argument('-ms', '--multi_scale', action='store_true',
                         help="Whether the network should predict on multiple scales.")
+
+    parser.add_argument('-l', '--output_types', nargs='+', help='The types of output images/frames', default=["seg", "seg_blended"])
+    parser.add_argument('--logging', default=False, action=argparse.BooleanOptionalAction)
 
     args = parser.parse_args()
 
