@@ -240,9 +240,6 @@ class PSPNet101(PSPNet):
 
 def main(args):
 
-    # TODO: Set isLogging
-    isLogging = args.logging
-
     # Predict
     os.environ["CUDA_VISIBLE_DEVICES"] = args.id
 
@@ -329,6 +326,9 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--output_types', nargs='+', help='The types of output images/frames', default=["seg", "seg_blended"])
 
     args = parser.parse_args()
+
+    # Set logging for this script
+    isLogging = args.logging
 
     main(args)
 
