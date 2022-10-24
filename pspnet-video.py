@@ -28,6 +28,8 @@ from imageio import imread
 # These are the means for the ImageNet pretrained ResNet
 DATA_MEAN = np.array([[[123.68, 116.779, 103.939]]])  # RGB order
 
+isLogging: bool = False
+
 
 class PSPNet(object):
     """Pyramid Scene Parsing Network by Hengshuang Zhao et al 2017"""
@@ -88,7 +90,7 @@ class PSPNet(object):
         stride = math.ceil(tile_size[0] * (1 - overlap))
         tile_rows = max(int(math.ceil((full_img.shape[0] - tile_size[0]) / stride) + 1), 1)  # strided convolution formula
         tile_cols = max(int(math.ceil((full_img.shape[1] - tile_size[1]) / stride) + 1), 1)
-        if args.logging: print("Need %i x %i prediction tiles @ stride %i px" % (tile_cols, tile_rows, stride))
+        if isLogging: print("Need %i x %i prediction tiles @ stride %i px" % (tile_cols, tile_rows, stride))
         full_probs = np.zeros((full_img.shape[0], full_img.shape[1], classes))
         count_predictions = np.zeros((full_img.shape[0], full_img.shape[1], classes))
         tile_counter = 0
@@ -106,7 +108,7 @@ class PSPNet(object):
                 plt.imshow(padded_img)
                 plt.show()
                 tile_counter += 1
-                if args.logging: print("Predicting tile %i" % tile_counter)
+                if isLogging: print("Predicting tile %i" % tile_counter)
                 padded_prediction = self.predict(padded_img, flip_evaluation)
                 prediction = padded_prediction[0:img.shape[0], 0:img.shape[1], :]
                 count_predictions[y1:y2, x1:x2] += 1
@@ -133,9 +135,9 @@ class PSPNet(object):
         full_probs = np.zeros((img.shape[0], img.shape[1], self.num_classes))
         h_ori, w_ori = img.shape[:2]
 
-        if args.logging: print("Started prediction...")
+        if isLogging: print("Started prediction...")
         for scale in scales:
-            if args.logging: print("Predicting image scaled by %f" % scale)
+            if isLogging: print("Predicting image scaled by %f" % scale)
             
             temp_img = Image.fromarray(img)
             scaled_img = np.array(temp_img.resize((int(temp_img.width * scale), int(temp_img.height * scale))))
@@ -150,7 +152,7 @@ class PSPNet(object):
             probs = cv2.resize(scaled_probs, (w_ori, h_ori))
             full_probs += probs
         full_probs /= len(scales)
-        if args.logging: print("Finished prediction...")
+        if isLogging: print("Finished prediction...")
 
         return full_probs
 
@@ -158,7 +160,7 @@ class PSPNet(object):
         assert data.shape == (self.input_shape[0], self.input_shape[1], 3)
 
         if flip_evaluation:
-            if args.logging: print("Predict flipped")
+            if isLogging: print("Predict flipped")
             input_with_flipped = np.array(
                 [data, np.flip(data, axis=1)])
             prediction_with_flipped = self.model.predict(input_with_flipped)
@@ -237,6 +239,10 @@ class PSPNet101(PSPNet):
 
 
 def main(args):
+
+    # Set isLogging
+    isLogging = args.logging
+
     # Handle input and output args
     images = glob(args.glob_path) if args.glob_path else [args.input_path, ]
     if args.glob_path:
@@ -278,10 +284,11 @@ def main(args):
         if args.multi_scale:
             EVALUATION_SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]  # must be all floats! Taken from original paper
 
+        output_types_set = set(args.output_types)
         temp_file_dir = "PART_1-Vids/Temp-frames"
         counter = 0
 
-        while (True):
+        while True:
             # Capture frame-by-frame
             ret, img = cap.read()
             if img is None:
@@ -300,7 +307,6 @@ def main(args):
             else:
                 filename, ext = splitext(args.output_path)
 
-            output_types_set = set(args.output_types)
 
             if "seg_read" in output_types_set:
                 imageio.imwrite(filename + "_%08d_seg_read"%counter + ".png", cm)
@@ -338,8 +344,8 @@ if __name__ == "__main__":
     parser.add_argument('-ms', '--multi_scale', action='store_true',
                         help="Whether the network should predict on multiple scales.")
 
-    parser.add_argument('-l', '--output_types', nargs='+', help='The types of output images/frames', default=["seg", "seg_blended"])
-    parser.add_argument('--logging', default=False, action=argparse.BooleanOptionalAction)
+    parser.add_argument('-logging', '--logging', action='store_true', help='Whether logger prints messages to console')
+    parser.add_argument('-t', '--output_types', nargs='+', help='The types of output images/frames', default=["seg", "seg_blended"])
 
     args = parser.parse_args()
 
