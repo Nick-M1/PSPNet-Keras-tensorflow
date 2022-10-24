@@ -278,7 +278,7 @@ def main(args):
         if args.multi_scale:
             EVALUATION_SCALES = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]  # must be all floats! Taken from original paper
 
-        time_sum = 0
+        temp_file_dir = "PART_1-Vids/Temp-frames"
         counter = 0
 
         while(True):
@@ -309,7 +309,7 @@ def main(args):
             imageio.imwrite(filename + "_%08d_seg_blended"%counter + ".png", alpha_blended)
 
             counter += 1
-            
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
